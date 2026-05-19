@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Purple Team SSH Brute-Force Detection Lab — Kali · Splunk · MITRE ATT&amp;CK</title>
+  <meta name="description" content="A live purple-team lab simulating an SSH brute-force attack on Kali Linux, captured with tcpdump, detected in Splunk Enterprise 10.2.2, mapped to MITRE ATT&CK T1110.001, and mitigated with fail2ban. 249 authentication failures from a single source IP, fully evidenced." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="container header-row">
+      <div class="brand">
+        <span class="brand-mark">MANDOZONE</span>
+        <span class="brand-sep">/</span>
+        <span class="brand-name">PURPLE-TEAM-SSH-DETECTION-LAB</span>
+      </div>
+      <nav class="site-nav" aria-label="Primary">
+        <a href="#overview">Overview</a>
+        <a href="#service">SSH</a>
+        <a href="#recon">Recon</a>
+        <a href="#capture">Capture</a>
+        <a href="#splunk">Splunk</a>
+        <a href="#detection">Detection</a>
+        <a href="#mitigation">Mitigation</a>
+        <a href="#mitre">MITRE</a>
+        <a href="#response">Response</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="notice">
+    <div class="container">
+      <span class="lock">🔒</span>
+      <span><strong>Anonymized for publication.</strong> All IPs in this site have been redacted to <code>10.10.14.45</code> (RFC 1918). All logs, captures, and Splunk detections were generated from live activity in an isolated VirtualBox lab.</span>
+    </div>
+  </div>
+
+  <main id="main">
+
+    <section class="hero">
+      <div class="container hero-grid">
+        <div class="hero-text">
+          <p class="eyebrow">Kali Linux 2025.2 · Splunk Enterprise 10.2.2 · MITRE ATT&amp;CK® T1110.001</p>
+          <h1>Purple Team SSH <span class="accent">Brute-Force</span> Detection Lab</h1>
+          <p class="lede">A fully live purple-team simulation of an SSH brute-force attack — every finding is backed by real packet capture, authentic <code>auth.log</code> events, and genuine Splunk SIEM detections inside an isolated VirtualBox network.</p>
+          <div class="tags">
+            <span class="tag">Kali Linux</span>
+            <span class="tag">Nmap</span>
+            <span class="tag">tcpdump</span>
+            <span class="tag">Splunk 10.2.2</span>
+            <span class="tag">SPL</span>
+            <span class="tag">fail2ban</span>
+            <span class="tag tag-accent">MITRE T1110.001</span>
+            <span class="tag tag-red">249 auth failures</span>
+          </div>
+          <div class="status-pill">
+            <span class="status-dot" aria-hidden="true"></span>
+            ATTACK DETECTED · CONTAINED VIA fail2ban
+          </div>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="assets/purple-team-ssh-detection-lab.pdf" target="_blank" rel="noopener">📄 Full Lab Report (PDF)</a>
+            <a class="btn" href="#detection">Jump to detection →</a>
+          </div>
+        </div>
+
+        <div class="hero-stats">
+          <div class="stat"><span class="stat-num red">249</span><span class="stat-label">Auth failures</span></div>
+          <div class="stat"><span class="stat-num">1</span><span class="stat-label">Source IP</span></div>
+          <div class="stat"><span class="stat-num">1</span><span class="stat-label">Target user</span></div>
+          <div class="stat"><span class="stat-num">751</span><span class="stat-label">Total events</span></div>
+          <div class="stat"><span class="stat-num">11</span><span class="stat-label">Lab stages</span></div>
+          <div class="stat"><span class="stat-num">3</span><span class="stat-label">ATT&amp;CK IDs</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="banner" class="section" style="padding-top:0; border-top:none;">
+      <div class="container">
+        <figure class="figure">
+          <img src="assets/fig11-splunk-249.jpg" alt="Splunk drill-down output showing 249 SSH authentication failures from a single source IP (10.10.14.45) targeting user 'kali'." loading="eager" />
+          <figcaption>
+            Final drill-down — <strong>count=249</strong> authentication failures from a single source IP (<code>10.10.14.45</code>) targeting user <code>kali</code> within the observation window. Single-source, single-target volume that no plausible legitimate behavior produces.
+          </figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="overview" class="section">
+      <div class="container">
+        <p class="section-kicker">Project Overview</p>
+        <div class="two-col">
+          <div>
+            <h2>The complete attack-detect-respond lifecycle, on real evidence.</h2>
+            <p>This lab demonstrates the full life of an SSH credential-access attack: configuring the target service, mapping the attack surface with Nmap, capturing live traffic with <code>tcpdump</code>, ingesting <code>/var/log/auth.log</code> into Splunk, building threshold-based SPL detections tagged with MITRE ATT&amp;CK metadata, and deploying <code>fail2ban</code> as a verified defensive control.</p>
+            <p>Every screenshot in this write-up was generated from live activity inside an isolated VirtualBox Kali Linux environment — not a sample dataset. The lab follows a purple-team approach: the attack and the detection are both performed in the same controlled environment, so each detection rule can be evidenced against the exact behavior that triggered it.</p>
+          </div>
+          <aside class="card">
+            <p class="card-eyebrow">📁 Lab Environment</p>
+            <p class="card-title"><code>isolated VirtualBox / host-only</code></p>
+            <p class="card-meta">Kali Linux 2025.2 · OpenSSH 10.2p1 · Splunk Enterprise 10.2.2 · Nmap 7.99 · tcpdump · fail2ban · No external exposure.</p>
+          </aside>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Component</th><th>Details</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Hypervisor</strong></td><td>Oracle VirtualBox</td><td>Isolated lab environment</td></tr>
+              <tr><td><strong>OS</strong></td><td>Kali Linux 2025.2 (amd64)</td><td>Attack platform and target host</td></tr>
+              <tr><td><strong>SIEM</strong></td><td>Splunk Enterprise 10.2.2</td><td>Log ingestion and detection engineering</td></tr>
+              <tr><td><strong>Target Service</strong></td><td>OpenSSH (<code>sshd</code>) on port 22</td><td>Brute-force target</td></tr>
+              <tr><td><strong>Log Source</strong></td><td><code>/var/log/auth.log</code></td><td>Authentication event source</td></tr>
+              <tr><td><strong>Network</strong></td><td>Host-Only adapter (isolated)</td><td>No external exposure</td></tr>
+              <tr><td><strong>Attack Source IP</strong></td><td><code>10.10.14.45</code> (anonymized)</td><td>Observed across all detections</td></tr>
+              <tr><td><strong>Target User</strong></td><td><code>kali</code></td><td>Single-account credential guessing</td></tr>
+              <tr><td><strong>Mitigation</strong></td><td><code>fail2ban</code> deployed and verified</td><td>Validated defensive control</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <pre class="flow-ascii" aria-label="Lab pipeline overview">
+  ┌──────────────┐    ┌──────────┐    ┌─────────────┐    ┌────────────┐    ┌──────────────┐
+  │  Kali (Atk)  │──► │  sshd 22 │──► │ auth.log    │──► │ Splunk SPL │──► │   fail2ban   │
+  │  libssh tool │    │  OpenSSH │    │ PAM events  │    │ T1110.001  │    │  iptables  ✋│
+  └──────────────┘    └──────────┘    └─────────────┘    └────────────┘    └──────────────┘
+       attack            target           evidence           detection         response
+        </pre>
+      </div>
+    </section>
+
+    <section id="service" class="section section-alt">
+      <div class="container">
+        <p class="section-kicker">Stage 1 — Service Setup</p>
+        <h2>SSH service configuration &amp; verification.</h2>
+        <p class="prose">The first step is confirming the target SSH service is active and accepting connections. <code>systemctl</code> is used to verify state — rather than assuming the service is running — which reflects standard SOC and sysadmin practice.</p>
+
+        <figure class="figure">
+          <img src="assets/fig1-ssh-systemctl.jpg" alt="Terminal output of sudo systemctl status ssh showing OpenSSH active (running)." loading="lazy" />
+          <figcaption>
+            <strong>Figure 1</strong> — <code>sudo systemctl status ssh</code>: OpenSSH server active (running) since 2026-05-06 00:02:25 EDT. Service enabled, Main PID 1855 (sshd), default configuration with no rate-limiting applied — intentional for the simulation and directly enables the brute-force volume observed later.
+          </figcaption>
+        </figure>
+
+<pre class="code">sudo systemctl enable ssh    # Enable SSH to start on boot
+sudo systemctl start  ssh    # Start the SSH service
+sudo systemctl status ssh    # Verify active (running) state</pre>
+      </div>
+    </section>
+
+    <section id="recon" class="section">
+      <div class="container">
+        <p class="section-kicker">Stage 2 — Reconnaissance</p>
+        <h2>Mapping the attack surface with Nmap.</h2>
+        <p class="prose">With the service confirmed, Nmap was used to verify what the attacker actually sees. This mirrors the recon phase an adversary performs before launching an authentication attack — identifying open services and entry points.</p>
+
+        <figure class="figure">
+          <img src="assets/fig2-nmap-scan.jpg" alt="Nmap scan output of the target host showing port 22/tcp ssh and 80/tcp http open." loading="lazy" />
+          <figcaption>
+            <strong>Figure 2</strong> — <code>nmap 10.10.14.45</code>: scan completed in 5.53 seconds. Port <code>22/tcp</code> (ssh) and <code>80/tcp</code> (http) confirmed OPEN; 998 ports filtered. Establishes the attack surface visible to the adversary prior to authentication attempts.
+          </figcaption>
+        </figure>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Port</th><th>State</th><th>Service</th><th>Security implication</th></tr></thead>
+            <tbody>
+              <tr><td><code>22/tcp</code></td><td>OPEN</td><td>SSH</td><td>Primary brute-force target — repeated auth attempts possible</td></tr>
+              <tr><td><code>80/tcp</code></td><td>OPEN</td><td>HTTP</td><td>Secondary attack surface — web-based attacks possible</td></tr>
+              <tr><td>All others</td><td>FILTERED</td><td>—</td><td>998 ports blocked — firewall reducing overall exposure</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="info-card">
+          <h3>🧠 MITRE ATT&amp;CK Context — T1046: Network Service Discovery</h3>
+          <p>This Nmap scan maps to <strong>T1046 (Network Service Discovery)</strong>, an adversary technique used to identify open ports and services prior to exploitation. In a real intrusion, T1046 immediately precedes the T1110 brute-force attempt — catching the attacker at recon is the ideal SOC outcome.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="capture" class="section section-alt">
+      <div class="container">
+        <p class="section-kicker">Stage 3 — Packet Capture</p>
+        <h2>Ground-truth evidence with tcpdump.</h2>
+        <p class="prose">Packet capture provides ground-truth evidence of what actually traversed the network — independent of application logs, which can be tampered with or suppressed. <code>tcpdump</code> was run before and during the attack to capture the SSH handshake, banner exchange, and packet timing.</p>
+
+        <div class="config-grid">
+          <figure class="figure">
+            <img src="assets/fig3-tcpdump-port80.jpg" alt="tcpdump capturing on port 80, verifying capture capability is operational." loading="lazy" />
+            <figcaption><strong>Figure 3</strong> — <code>sudo tcpdump -ni any port 80 -ttt</code>: link-type LINUX_SLL2, snapshot length 262144 bytes. Confirms packet capture is active prior to the SSH simulation.</figcaption>
+          </figure>
+          <figure class="figure">
+            <img src="assets/fig4-tcpdump-port22.jpg" alt="tcpdump showing the live SSH handshake — SYN, SYN-ACK, ACK — and SSH version banners SSH-2.0-libssh_0.12.0 and SSH-2.0-OpenSSH_10.2p1." loading="lazy" />
+            <figcaption><strong>Figure 4</strong> — Live SSH traffic on port 22: standard TCP three-way handshake captured (SYN → SYN-ACK → ACK), client banner <code>SSH-2.0-libssh_0.12.0</code>, server banner <code>SSH-2.0-OpenSSH_10.2p1 Debian-6</code>. Sub-millisecond timing = automated tooling, not human.</figcaption>
+          </figure>
+        </div>
+
+        <h3 style="margin-top:32px;">What the capture reveals</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Observed indicator</th><th>Value</th><th>Analyst interpretation</th></tr></thead>
+            <tbody>
+              <tr><td>Client SSH banner</td><td><code>SSH-2.0-libssh_0.12.0</code></td><td>libssh is commonly used in brute-force frameworks — not a standard user client</td></tr>
+              <tr><td>Server SSH banner</td><td><code>SSH-2.0-OpenSSH_10.2p1</code></td><td>Target confirmed as OpenSSH — standard Linux daemon</td></tr>
+              <tr><td>Packet timing</td><td>Sub-millisecond intervals</td><td>Scripted automation — humans cannot type this fast</td></tr>
+              <tr><td>TCP flags</td><td>[S] → [S.] → [.] → [P.]</td><td>Normal handshake per connection — full connect, not a DoS pattern</td></tr>
+              <tr><td>Connection pattern</td><td>Repeated new connections to port 22</td><td>High-frequency SSH authentication attempts — consistent with T1110.001</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="alert-card">
+          <h3>⚠️ Important Distinction — Brute-Force vs. DoS</h3>
+          <p>The capture shows <strong>repeated SSH connection attempts</strong>, not a SYN flood. A SYN flood (T1498) sends incomplete handshakes to exhaust server resources. What is observed here is <strong>T1110.001 (Password Guessing)</strong> — every connection completes the TCP handshake and then attempts SSH authentication. The goal is credential access, not service disruption.</p>
+        </div>
+
+<pre class="code">sudo tcpdump -ni any port 22 -ttt   # Capture SSH traffic, relative timestamps
+sudo tcpdump -ni any port 80 -ttt   # Capture HTTP traffic
+
+# Flags:
+#  -n     no DNS resolution (show raw IPs)
+#  -i any capture on all interfaces
+#  -ttt   show relative timestamp between packets</pre>
+      </div>
+    </section>
+
+    <section id="splunk" class="section">
+      <div class="container">
+        <p class="section-kicker">Stage 4 — SIEM Deployment</p>
+        <h2>Splunk Enterprise 10.2.2 — full startup, no shortcuts.</h2>
+        <p class="prose">Splunk Enterprise 10.2.2 was installed and brought up cleanly inside the lab — the full startup sequence is documented to demonstrate a genuine deployment, not a pre-configured demo environment.</p>
+
+        <div class="config-grid">
+          <figure class="figure">
+            <img src="assets/fig5-splunk-start.jpg" alt="Splunk start command output showing HTTP, management, app server, and KV store ports verified before launch." loading="lazy" />
+            <figcaption><strong>Figure 5</strong> — <code>sudo -u splunk /opt/splunk/bin/splunk start</code>. Prerequisites verified: HTTP <code>8000</code>, mgmt <code>8089</code>, appserver <code>127.0.0.1:8065</code>, kvstore <code>8191</code>.</figcaption>
+          </figure>
+          <figure class="figure">
+            <img src="assets/fig6-splunk-boot.jpg" alt="Splunk boot sequence — configuration validated, indexes verified, file manifest checked against splunk-10.2.2." loading="lazy" />
+            <figcaption><strong>Figure 6</strong> — Boot validation: configuration parsed, indexes (<code>_audit</code>, <code>_internal</code>, <code>main</code>, <code>summary</code>) verified, file hashes checked against the <code>splunk-10.2.2</code> manifest.</figcaption>
+          </figure>
+          <figure class="figure">
+            <img src="assets/fig7-splunk-web-ready.jpg" alt="Splunk reports splunkd Done and Web server available at http://127.0.0.1:8000." loading="lazy" />
+            <figcaption><strong>Figure 7</strong> — Startup complete: <code>splunkd</code> Done, web UI available at <code>http://127.0.0.1:8000</code>. System ready for ingestion and SPL search.</figcaption>
+          </figure>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Splunk port</th><th>Function</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><code>8000</code></td><td>Web UI (browser access)</td><td>OPEN — confirmed</td></tr>
+              <tr><td><code>8089</code></td><td>Management API</td><td>OPEN — confirmed</td></tr>
+              <tr><td><code>8065</code></td><td>App server (loopback)</td><td>OPEN — confirmed</td></tr>
+              <tr><td><code>8191</code></td><td>KV Store</td><td>OPEN — confirmed</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="detection" class="section section-alt">
+      <div class="container">
+        <p class="section-kicker">Stage 5 — Detection Engineering</p>
+        <h2>Catching T1110.001 in Splunk with SPL.</h2>
+        <p class="prose">With <code>/var/log/auth.log</code> ingested into the <code>main</code> index, two SPL queries do the heavy lifting: a baseline search to confirm the attack is present, and a threshold-based, MITRE-tagged search that distinguishes scripted brute-force from a user mistyping a password.</p>
+
+        <figure class="figure">
+          <img src="assets/fig8-splunk-search.jpg" alt="Splunk Search UI showing 16 SSH authentication failure events with rhost 10.10.14.45 targeting user kali." loading="lazy" />
+          <figcaption>
+            <strong>Figure 8</strong> — Initial search: <code>index="main" ssh source="/var/log/auth.log" "authentication failures"</code>. Returns 16+ events showing sshd PAM failures from <code>rhost=10.10.14.45</code> against user <code>kali</code>.
+          </figcaption>
+        </figure>
+
+        <h3 style="margin-top:32px;">Detection Query — Baseline</h3>
+<pre class="code">index="main" ssh source="/var/log/auth.log" "authentication failures"
+
+# Result: 16+ events in initial window
+# Source IP : rhost=10.10.14.45 (anonymized)
+# Target    : user=kali
+# Log path  : /var/log/auth.log (live ingestion)</pre>
+
+        <p class="prose" style="margin-top:16px;">This query searches the <code>main</code> index for events from <code>/var/log/auth.log</code> containing the phrase <em>"authentication failures"</em> — the exact string written by the Linux PAM subsystem when SSH login attempts fail. Filtering on <code>ssh</code> scopes results to SSH-specific failures rather than other PAM-managed services.</p>
+
+        <figure class="figure">
+          <img src="assets/fig9-splunk-ioc-table.jpg" alt="Splunk tabular output extracting rhost and user fields, showing a single source IP and single target user." loading="lazy" />
+          <figcaption>
+            <strong>Figure 9</strong> — IOC table: <code>rhost</code> and <code>user</code> fields extracted from every failure event. Single source IP <code>10.10.14.45</code> across all visible rows, all targeting <code>kali</code> — the IOC tying the attack to a specific source and account.
+          </figcaption>
+        </figure>
+
+        <div class="ioc-grid">
+          <div class="ioc-tile alert"><div class="ioc-label">Source IP</div><div class="ioc-value">10.10.14.45</div></div>
+          <div class="ioc-tile alert"><div class="ioc-label">Target user</div><div class="ioc-value">kali</div></div>
+          <div class="ioc-tile"><div class="ioc-label">Log path</div><div class="ioc-value">/var/log/auth.log</div></div>
+          <div class="ioc-tile"><div class="ioc-label">Client banner</div><div class="ioc-value">SSH-2.0-libssh_0.12.0</div></div>
+        </div>
+
+        <h3 style="margin-top:32px;">Detection Query — Advanced (Threshold-Based, MITRE-Tagged)</h3>
+<pre class="code">index=main source="/var/log/auth.log" "authentication failures"
+| bucket _time span=1m
+| stats count by _time rhost user
+| where count &gt; 10
+| sort -count
+| table _time rhost user count
+| eval mitre_technique    = "T1110 - Brute Force"
+| eval mitre_subtechnique = "T1110.001 - Password Guessing"
+| eval mitre_tactic       = "Credential Access"
+| eval severity = case(count&gt;100,"HIGH", count&gt;30,"MEDIUM", true(),"LOW")</pre>
+
+        <div class="config-grid">
+          <article class="config-card">
+            <h3>Why the threshold works</h3>
+            <p><code>bucket _time span=1m</code> groups events into one-minute windows, then <code>stats count by _time rhost user</code> counts failures per source/user. <code>where count &gt; 10</code> filters out noise — a legitimate user mistyping a password rarely exceeds 3–5 failures per minute.</p>
+            <div class="sev-row">
+              <span class="sev-pill sev-low">LOW · &le;30</span>
+              <span class="sev-pill sev-medium">MEDIUM · &gt;30</span>
+              <span class="sev-pill sev-high">HIGH · &gt;100</span>
+            </div>
+          </article>
+          <article class="config-card">
+            <h3>Why MITRE tagging matters</h3>
+            <p>The <code>eval</code> commands stamp each matching event with its MITRE tactic, technique, and sub-technique — making every alert framework-aware and directly actionable. Analysts triaging this alert see <em>T1110.001 — Password Guessing</em> and know exactly which response playbook to pull.</p>
+          </article>
+        </div>
+
+        <h3 style="margin-top:32px;">Attack visualisation &amp; volume confirmation</h3>
+        <div class="config-grid">
+          <figure class="figure">
+            <img src="assets/fig10-splunk-spike.jpg" alt="Splunk column chart showing 751 total events with a sharp spike of authentication failures concentrated on the right of the timeline." loading="lazy" />
+            <figcaption><strong>Figure 10</strong> — Timeline of authentication failures: <strong>751 total events</strong>, with a near-vertical spike — characteristic of automated tooling at maximum speed, not human behavior.</figcaption>
+          </figure>
+          <figure class="figure">
+            <img src="assets/fig11-splunk-249.jpg" alt="Splunk drill-down confirming count=249 for source IP 10.10.14.45 and user kali." loading="lazy" />
+            <figcaption><strong>Figure 11</strong> — Drill-down to the spike: <strong>count=249</strong> failures for <code>10.10.14.45</code> → <code>kali</code>. Far beyond any plausible legitimate explanation.</figcaption>
+          </figure>
+        </div>
+
+        <div class="info-card">
+          <h3>🔥 Why 249 Failures Matters</h3>
+          <p>A user mistyping their password: typically 2–5 failures before lockout or success. A misconfigured automation script: typically &lt;20 failures before someone intervenes. An automated brute-force tool: exactly this pattern — sustained high volume, consistent timing, single source, single target. False-positive likelihood here is extremely low.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="mitigation" class="section">
+      <div class="container">
+        <p class="section-kicker">Stage 6 — Defensive Response</p>
+        <h2>fail2ban — detection without response is incomplete.</h2>
+        <p class="prose">Most lab write-ups end at "recommended mitigations". This project goes further by deploying and verifying <code>fail2ban</code> as a real defensive control inside the same environment where the attack was observed. The full attack-detect-respond cycle is closed.</p>
+
+        <div class="config-grid">
+          <article class="config-card">
+            <h3>Install &amp; enable</h3>
+<pre class="code">sudo apt install fail2ban -y
+
+sudo systemctl enable fail2ban
+sudo systemctl start  fail2ban
+sudo systemctl status fail2ban
+
+# Confirm the SSH jail is active
+sudo fail2ban-client status sshd</pre>
+          </article>
+          <article class="config-card">
+            <h3>Verify the ban</h3>
+<pre class="code">sudo fail2ban-client status sshd
+
+# Status for the jail: sshd
+#    Currently banned: 1
+#    IP list:          10.10.14.45
+
+# Manual unban for continued lab testing
+sudo fail2ban-client unban 10.10.14.45</pre>
+          </article>
+        </div>
+
+        <h3 style="margin-top:32px;">How fail2ban kills T1110.001</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Behavior</th><th>Default setting</th><th>Effect on brute-force</th></tr></thead>
+            <tbody>
+              <tr><td>Monitors <code>/var/log/auth.log</code></td><td>Built-in SSH filter</td><td>Watches the exact log source ingested into Splunk</td></tr>
+              <tr><td>Failure threshold (<code>maxretry</code>)</td><td>5 failures</td><td>Triggers ban after 5 attempts — vs. 249 observed without it</td></tr>
+              <tr><td>Ban duration (<code>bantime</code>)</td><td>10 minutes</td><td>Source IP blocked from further connection attempts</td></tr>
+              <tr><td>Find window (<code>findtime</code>)</td><td>10 minutes</td><td>Failures counted within a rolling window</td></tr>
+              <tr><td>Action</td><td><code>iptables DROP</code></td><td>Network-level block — attack traffic silently dropped</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="info-card">
+          <h3>💡 Impact on this lab's attack</h3>
+          <p>With <code>fail2ban</code> active, the 249-failure campaign would have been terminated after the 5th failure. The attacker's IP would have been banned for 10 minutes — halting the brute-force attempt before any meaningful password guessing could occur.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="mitre" class="section section-alt">
+      <div class="container">
+        <p class="section-kicker">MITRE ATT&amp;CK® Mapping</p>
+        <h2>Every observed behavior tied to a documented technique.</h2>
+        <p class="prose">Each mapping below is anchored to a specific figure and a specific piece of evidence — not inserted as decoration. The kill chain runs T1046 → T1110 → T1110.001, with valid-account follow-ons (T1078, T1021.004) deliberately observable in the same log source.</p>
+
+        <div class="mitre-card">
+          <h3>ATT&amp;CK Classification</h3>
+          <div class="mitre-row">
+            <div class="mitre-item"><div class="lbl">Tactic</div><div class="val">Credential Access</div></div>
+            <div class="mitre-item"><div class="lbl">Technique</div><div class="val">T1110 — Brute Force</div></div>
+            <div class="mitre-item"><div class="lbl">Sub-technique</div><div class="val">T1110.001 — Password Guessing</div></div>
+          </div>
+        </div>
+
+        <h3 style="margin-top:32px;">Evidence → Technique mapping</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Observed evidence</th><th>Figure</th><th>MITRE technique</th><th>ID</th></tr></thead>
+            <tbody>
+              <tr><td>Nmap scan on target host</td><td>Figure 2</td><td>Network Service Discovery</td><td><code>T1046</code></td></tr>
+              <tr><td>SSH port 22 confirmed open</td><td>Figure 2</td><td>Remote Services — SSH</td><td><code>T1021.004</code></td></tr>
+              <tr><td>High-frequency SSH authentication attempts</td><td>Figure 4</td><td>Brute Force</td><td><code>T1110</code></td></tr>
+              <tr><td><code>libssh_0.12.0</code> client banner (automated tool)</td><td>Figure 4</td><td>Password Guessing (automated)</td><td><code>T1110.001</code></td></tr>
+              <tr><td>249 auth failures from single source IP</td><td>Figure 11</td><td>Brute Force — high volume</td><td><code>T1110</code></td></tr>
+              <tr><td>Single username (<code>kali</code>) consistently targeted</td><td>Figure 9</td><td>Password Guessing — targeted</td><td><code>T1110.001</code></td></tr>
+              <tr><td>Sub-millisecond packet timing</td><td>Figure 4</td><td>Automated password guessing behavior</td><td><code>T1110.001</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-top:32px;">Kill chain — follow-on techniques if the attack succeeds</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Next stage</th><th>Technique</th><th>ID</th><th>Detection opportunity</th></tr></thead>
+            <tbody>
+              <tr><td>Valid credentials obtained</td><td>Valid Accounts</td><td><code>T1078</code></td><td>Successful SSH login from attack source IP</td></tr>
+              <tr><td>Interactive shell gained</td><td>Remote Services — SSH</td><td><code>T1021.004</code></td><td>New session following failure burst in <code>auth.log</code></td></tr>
+              <tr><td>System reconnaissance</td><td>System Info Discovery</td><td><code>T1082</code></td><td>Unusual commands in shell history post-login</td></tr>
+              <tr><td>Lateral movement</td><td>Remote Services</td><td><code>T1021</code></td><td>SSH connections originating from compromised host</td></tr>
+              <tr><td>Persistence established</td><td>Create Account / SSH Keys</td><td><code>T1136</code></td><td>New accounts or <code>~/.ssh/authorized_keys</code> edits</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="response" class="section">
+      <div class="container">
+        <p class="section-kicker">Response Planning</p>
+        <h2>From IOC to incident-response playbook.</h2>
+
+        <div class="two-col">
+          <div>
+            <h3>Immediate actions</h3>
+            <ul class="bullets">
+              <li>Block <code>10.10.14.45</code> at the firewall — 249 failures with no legitimate business justification; <code>fail2ban</code> auto-ban should already be in effect.</li>
+              <li>Verify no successful logins occurred — search <code>auth.log</code> for <code>"Accepted password"</code> or <code>"Accepted publickey"</code> from the source IP before and after the failure window.</li>
+              <li>Audit the targeted account — check user <code>kali</code> for unauthorized SSH key additions, password changes, recent sudo activity, or new <code>authorized_keys</code> entries.</li>
+              <li>Review <code>fail2ban</code> ban log — confirm the IP was banned and document the trigger timestamp.</li>
+            </ul>
+          </div>
+          <div>
+            <h3>Secondary actions</h3>
+            <ul class="bullets">
+              <li>Multi-account targeting check — <code>stats count by user</code> to confirm whether other accounts were targeted beyond <code>kali</code>.</li>
+              <li>Lateral movement check — verify the source IP did not attempt connections to other lab hosts.</li>
+              <li>Set a Splunk saved alert: <code>count &gt; 10</code> per source/user/minute → notification.</li>
+              <li>Harden SSH — consider <code>PasswordAuthentication no</code> in <code>sshd_config</code> in favour of key-based auth.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="alert-card">
+          <h3>🚨 Escalate to Tier 2 if ANY of these are true</h3>
+          <p>
+            ✔ Successful authentication detected from the source IP at any point&nbsp;·&nbsp;
+            ✔ New SSH keys added to <code>~/.ssh/authorized_keys</code> on any account&nbsp;·&nbsp;
+            ✔ New user accounts created on the target system&nbsp;·&nbsp;
+            ✔ Same source IP attacking multiple hosts on the network&nbsp;·&nbsp;
+            ✔ Attack originates from inside the trusted network (not the isolated lab subnet).
+          </p>
+        </div>
+
+        <h3 style="margin-top:32px;">End-to-end workflow</h3>
+        <div class="workflow">
+          <div class="workflow-step"><div class="workflow-num">STAGE 1</div><div class="workflow-title">Service Setup</div><div class="workflow-tool">systemctl · Figure 1</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 2</div><div class="workflow-title">Reconnaissance</div><div class="workflow-tool">Nmap 7.99 · Figure 2</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 3</div><div class="workflow-title">Traffic Capture</div><div class="workflow-tool">tcpdump · Figures 3–4</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 4</div><div class="workflow-title">Attack</div><div class="workflow-tool">libssh tool · Figure 4</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 5</div><div class="workflow-title">SIEM Deployment</div><div class="workflow-tool">Splunk 10.2.2 · Figures 5–7</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 6</div><div class="workflow-title">Log Ingestion</div><div class="workflow-tool">auth.log → main · Figure 8</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 7</div><div class="workflow-title">Detection</div><div class="workflow-tool">SPL · Figures 8–11</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 8</div><div class="workflow-title">Visualization</div><div class="workflow-tool">Splunk charts · Figure 10</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 9</div><div class="workflow-title">Mitigation</div><div class="workflow-tool">fail2ban · Stage 6</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 10</div><div class="workflow-title">MITRE Mapping</div><div class="workflow-tool">T1046 → T1110 → T1110.001</div></div>
+          <div class="workflow-step"><div class="workflow-num">STAGE 11</div><div class="workflow-title">Response</div><div class="workflow-tool">SOC playbook</div></div>
+        </div>
+
+        <h3 style="margin-top:32px;">Skills demonstrated</h3>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>Skill area</th><th>What was demonstrated</th></tr></thead>
+            <tbody>
+              <tr><td>Linux administration</td><td>SSH service configuration, <code>systemctl</code>, process and state verification</td></tr>
+              <tr><td>Network reconnaissance</td><td>Nmap scanning to map the attack surface from the adversary's perspective</td></tr>
+              <tr><td>Packet analysis</td><td><code>tcpdump</code>: SSH handshake capture, banner fingerprinting, timing-based automation detection</td></tr>
+              <tr><td>SIEM engineering</td><td>Splunk 10.2.2 full deployment, log ingestion, index configuration</td></tr>
+              <tr><td>Detection engineering</td><td>SPL with bucketing, threshold logic, MITRE-tagged output, dynamic severity scoring</td></tr>
+              <tr><td>Visualization</td><td>Timeline charting to identify attack burst patterns for stakeholder communication</td></tr>
+              <tr><td>Defensive implementation</td><td><code>fail2ban</code> deployed and verified — attack-to-response cycle completed</td></tr>
+              <tr><td>MITRE ATT&amp;CK</td><td>T1046 → T1110 → T1110.001 kill chain mapped to live evidence</td></tr>
+              <tr><td>Threat intelligence</td><td>IOC identification: source IP, username, count threshold, timing analysis</td></tr>
+              <tr><td>Incident response</td><td>Escalation criteria, containment steps, post-incident hardening recommendations</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <blockquote class="takeaway">
+          <p class="takeaway-title">Final SOC reporting statement</p>
+          <p>Activity observed from source IP <code>10.10.14.45</code> [anonymized] is consistent with MITRE ATT&amp;CK <strong>T1110.001 (Password Guessing)</strong>, a sub-technique of Brute Force under the Credential Access tactic. 249 authentication failures against user <code>kali</code> within the observation window, combined with automated <code>libssh</code> tooling fingerprinted in packet capture, confirm scripted credential-access behavior.</p>
+          <p>False-positive likelihood is extremely low given the sustained volume, timing consistency, and single-source targeting pattern observed across all evidence sources. Containment: source IP blocked via <code>fail2ban</code>. No successful authentication detected. Recommend SSH hardening (key-based auth only) as a permanent control.</p>
+        </blockquote>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="container footer-row">
+      <div>
+        <p class="brand-mark">MANDOZONE / PURPLE-TEAM-SSH-DETECTION-LAB</p>
+        <p class="footer-meta">Kali Linux 2025.2 · Splunk Enterprise 10.2.2 · OpenSSH 10.2p1 · MITRE ATT&amp;CK®</p>
+      </div>
+      <div>
+        <p>Live lab evidence · All IPs anonymized to <code>10.10.14.45</code>.</p>
+        <p class="footer-meta">© <span id="year"></span> — Lab documentation site.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    document.getElementById('year').textContent = new Date().getFullYear();
+  </script>
+</body>
+</html>
